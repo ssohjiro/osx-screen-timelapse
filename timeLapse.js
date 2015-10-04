@@ -5,12 +5,14 @@
 
 var _ = require('underscore');
 var cli = require('cli');
-var options = cli.parse({
+var argv = cli.parse({
 	video: ['v', 'Create Video'],
 	septs: ['s', 'septs']
 });
 var when = require('when');
 var syncExec = require('sync-exec');
+var cp = require('child_process');
+var count = 0;
 
 var CAPTURE_RATE = 5000;
 
@@ -47,6 +49,20 @@ function getNumOfMonitor() {
 	return deferred.promise;
 }
 
+function setInitialCount() {
+
+
+	var r = syncExec("ls *_merged.png");
+	var list = r.stdout.split('\n');
+	list.pop();
+
+	list = list.map( function( file ) {
+		return Number( file.replace(/_merged\.png$/,'') );
+	});
+
+	count = list.length > 0 ? _.max( list ) + 1 : 0;
+}
+
 function getFileName( no ) {
 
 	var deferred = when.defer();
@@ -72,7 +88,7 @@ function screenShot( fileNameArg, no ) {
             'rm '+fileNameArg+' &', function() {
 
 		var date = new Date();
-		cli.output( date.toString() + ' Capturing screenshot...' );
+		cli.output( no + 'th ' + date.toString() + ' Capturing screenshot...' );
 	});
 }
 
@@ -90,6 +106,7 @@ function sequentialize() {
 		_.each( lines, function( line, i ) {
 
 			if( ! line ) return;
+			console.log( line, i );
 			syncExec( 'ln -sf '+line+' seqtmp_'+padLeft( i, 6 )+'.png' );
 		});
 
@@ -99,25 +116,41 @@ function sequentialize() {
 	return deferred.promise;
 }
 
-if( options.video ) {
+if( argv.video ) {
 
 	sequentialize()
 	.then( function() {
 
 		cli.output('vedieo!! gogogo');
-		var setps = options.septs || "5.0";
+		var setps = argv.septs || "5.0";
 		var outputFile = Date.now() + '.mp4';
 
-		syncExec('ffmpeg -start_number 000001 -i seqtmp_%06d.png -vcodec libx264 -r 30 -b:v 5000k \\'+
-			 '-filter:v "setpts='+setps+'*PTS" '+outputFile );
-				
-		syncExec("rm seqtmp_*.png");
-		cli.output('vedieo!! end');
+		//cli.output( syncExec('ffmpeg -start_number 000001 -i seqtmp_%06d.png -vcodec libx264 -r 30 -b:v 5000k \\'+
+			 //'-filter:v "setpts='+setps+'*PTS" '+outputFile ));
+
+		//cp.spawn( 'ffmpeg', [ '-start_number', '000001 -i seqtmp_%06d.png -vcodec libx264 -r 30 -b:v 5000k -filter:v "setpts='+setps+'*PTS" '+outputFile ], {
+		cp.spawn( 'ffmpeg', [ '-start_number', '000001', '-i', 'seqtmp_%06d.png', '-vcodec', 'libx264', '-r', '30', '-b:v', '5000k', '-filter:v', 'setpts='+setps+'*PTS', outputFile ], {
+
+			cwd: process.env.PWD,
+			stdio: 'inherit'
+
+		}).on( 'exit', function() {
+
+			//resolve();
+			syncExec("rm seqtmp_*.png");
+			cli.output('vedieo!! end');
+
+			if( argv.deletePng ) {
+				var cmd = "rm *_merged.png";
+				cli.output( cmd );
+				syncExec( cmd );
+			}
+		});
 	});
 
 } else {
 
-	var count = 0;
+	setInitialCount();
 	setInterval( function() {
 
 		getFileName( count )
@@ -127,6 +160,4 @@ if( options.video ) {
 		});
 
 	}, CAPTURE_RATE );
-
 }
-
